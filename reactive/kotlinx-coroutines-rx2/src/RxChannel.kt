@@ -33,20 +33,20 @@ public suspend inline fun <T> ObservableSource<T>.collect(action: (T) -> Unit): 
 @PublishedApi
 internal fun <T> MaybeSource<T>.toChannel(): ReceiveChannel<T> {
     val channel = SubscriptionChannel<T>()
-    subscribe(channel)
+    subscribe(channel as MaybeObserver<T>)
     return channel
 }
 
 @PublishedApi
 internal fun <T> ObservableSource<T>.toChannel(): ReceiveChannel<T> {
     val channel = SubscriptionChannel<T>()
-    subscribe(channel)
+    subscribe(channel as Observer<T>)
     return channel
 }
 
 @Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
 private class SubscriptionChannel<T> :
-    LinkedListChannel<T>(null), Observer<T>, MaybeObserver<T>
+    LinkedListChannel<T>(null), Observer<T & Any>, MaybeObserver<T & Any>
 {
     private val _subscription = atomic<Disposable?>(null)
 
