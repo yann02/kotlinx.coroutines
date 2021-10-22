@@ -40,20 +40,15 @@ fun MavenPom.configureMavenCentralMetadata(project: Project) {
 }
 
 fun mavenRepositoryUri(): URI {
-    val repositoryId: String? = System.getenv("libs.repository.id")
-    return if (repositoryId == null) {
-        URI("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
-    } else {
-        URI("https://oss.sonatype.org/service/local/staging/deployByRepositoryId/$repositoryId")
-    }
+    return URI("https://maven.pkg.jetbrains.space/public/p/kotlinx-coroutines/maven")
 }
 
 fun configureMavenPublication(rh: RepositoryHandler, project: Project) {
     rh.maven {
         url = mavenRepositoryUri()
         credentials {
-            username = project.getSensitiveProperty("libs.sonatype.user")
-            password = project.getSensitiveProperty("libs.sonatype.password")
+            username = project.getSensitiveProperty("libs.space.user")
+            password = project.getSensitiveProperty("libs.space.password")
         }
     }
 }
