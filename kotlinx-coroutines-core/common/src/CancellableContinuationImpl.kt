@@ -10,9 +10,17 @@ import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.*
 import kotlin.jvm.*
 
+private const val DECISION_SHIFT = 29
+private const val INDEX_MASK = (1 shl DECISION_SHIFT) - 1
+private const val NO_INDEX = INDEX_MASK
 private const val UNDECIDED = 0
 private const val SUSPENDED = 1
 private const val RESUMED = 2
+
+private inline val Int.decision get() = this shr DECISION_SHIFT
+private inline val Int.index get() = this and INDEX_MASK
+@Suppress("NOTHING_TO_INLINE")
+private inline fun construct(decision: Int, index: Int) = (decision shl DECISION_SHIFT) + index
 
 @JvmField
 internal val RESUME_TOKEN = Symbol("RESUME_TOKEN")
@@ -55,9 +63,9 @@ internal open class CancellableContinuationImpl<in T>(
         |  RESUMED  |
         +-----------+
 
-        Note: both tryResume and trySuspend can be invoked at most once, first invocation wins
+        Note: both tryResume and trySuspend can be invoked at most once, first invocation wins.
      */
-    private val _decision = atomic(UNDECIDED)
+    private val _decisionAndIndex = atomic(construct(UNDECIDED, NO_INDEX))
 
     /*
        === Internal states ===
@@ -122,7 +130,7 @@ internal open class CancellableContinuationImpl<in T>(
             detachChild()
             return false
         }
-        _decision.value = UNDECIDED
+        _decisionAndIndex.value = construct(UNDECIDED, NO_INDEX)
         _state.value = Active
         return true
     }
@@ -172,10 +180,11 @@ internal open class CancellableContinuationImpl<in T>(
         _state.loop { state ->
             if (state !is NotCompleted) return false // false if already complete or cancelling
             // Active -- update to final state
-            val update = CancelledContinuation(this, cause, handled = state is CancelHandler)
+            val update = CancelledContinuation(this, cause, handled = state is CancelHandler || state is Segment<*>)
             if (!_state.compareAndSet(state, update)) return@loop // retry on cas failure
             // Invoke cancel handler if it was present
             (state as? CancelHandler)?.let { callCancelHandler(it, cause) }
+            (state as? Segment<*>)?.let { callSegmentOnCancellation(it, cause) }
             // Complete state update
             detachChildIfNonResuable()
             dispatchResume(resumeMode) // no need for additional cancellation checks
@@ -212,6 +221,13 @@ internal open class CancellableContinuationImpl<in T>(
     fun callCancelHandler(handler: CancelHandler, cause: Throwable?) =
         callCancelHandlerSafely { handler.invoke(cause) }
 
+    private fun callSegmentOnCancellation(segment: Segment<*>, cause: Throwable?) {
+        val index = _decisionAndIndex.value.index
+        check(index != NO_INDEX) { "The index for segment.invokeOnCancellation(..) is broken" }
+        callCancelHandlerSafely { segment.invokeOnCancellation(index, cause) }
+    }
+
+
     fun callOnCancellation(onCancellation: (cause: Throwable) -> Unit, cause: Throwable) {
         try {
             onCancellation.invoke(cause)
@@ -231,9 +247,9 @@ internal open class CancellableContinuationImpl<in T>(
         parent.getCancellationException()
 
     private fun trySuspend(): Boolean {
-        _decision.loop { decision ->
-            when (decision) {
-                UNDECIDED -> if (this._decision.compareAndSet(UNDECIDED, SUSPENDED)) return true
+        _decisionAndIndex.loop { cur ->
+            when (cur.decision) {
+                UNDECIDED -> if (this._decisionAndIndex.compareAndSet(cur, construct(SUSPENDED, cur.index))) return true
                 RESUMED -> return false
                 else -> error("Already suspended")
             }
@@ -241,9 +257,9 @@ internal open class CancellableContinuationImpl<in T>(
     }
 
     private fun tryResume(): Boolean {
-        _decision.loop { decision ->
-            when (decision) {
-                UNDECIDED -> if (this._decision.compareAndSet(UNDECIDED, RESUMED)) return true
+        _decisionAndIndex.loop { cur ->
+            when (cur.decision) {
+                UNDECIDED -> if (this._decisionAndIndex.compareAndSet(cur, construct(RESUMED, cur.index))) return true
                 SUSPENDED -> return false
                 else -> error("Already resumed")
             }
@@ -328,14 +344,39 @@ internal open class CancellableContinuationImpl<in T>(
     override fun resume(value: T, onCancellation: ((cause: Throwable) -> Unit)?) =
         resumeImpl(value, resumeMode, onCancellation)
 
+    /**
+     * An optimized version for the code below that does not allocate
+     * a cancellation handler object and efficiently stores the specified
+     * [segment] and [index] in this [CancellableContinuationImpl].
+     * ```
+     * invokeOnCancellation { cause ->
+     *   segment.invokeOnCancellation(index, cause)
+     * }
+     * ```
+     */
+    internal fun invokeOnCancellation(segment: Segment<*>, index: Int) {
+        _decisionAndIndex.update {
+            check(it.index == NO_INDEX) {
+                "invokeOnCancellation should be invoked at most once"
+            }
+            construct(it.decision, index)
+        }
+        invokeOnCancellationImpl(segment)
+    }
+
     public override fun invokeOnCancellation(handler: CompletionHandler) {
         val cancelHandler = makeCancelHandler(handler)
+        invokeOnCancellationImpl(cancelHandler)
+    }
+
+    private fun invokeOnCancellationImpl(handler: Any) {
+        assert { handler is CancelHandler || handler is Segment<*> }
         _state.loop { state ->
             when (state) {
                 is Active -> {
-                    if (_state.compareAndSet(state, cancelHandler)) return // quit on cas success
+                    if (_state.compareAndSet(state, handler)) return // quit on cas success
                 }
-                is CancelHandler -> multipleHandlersError(handler, state)
+                is CancelHandler, is Segment<*> -> multipleHandlersError(handler, state)
                 is CompletedExceptionally -> {
                     /*
                      * Continuation was already cancelled or completed exceptionally.
@@ -349,7 +390,13 @@ internal open class CancellableContinuationImpl<in T>(
                      * because we play type tricks on Kotlin/JS and handler is not necessarily a function there
                      */
                     if (state is CancelledContinuation) {
-                        callCancelHandler(handler, (state as? CompletedExceptionally)?.cause)
+                        val cause: Throwable? = (state as? CompletedExceptionally)?.cause
+                        if (handler is CancelHandler) {
+                            callCancelHandler(handler, cause)
+                        } else {
+                            val segment = handler as Segment<*>
+                            callSegmentOnCancellation(segment, cause)
+                        }
                     }
                     return
                 }
@@ -358,14 +405,16 @@ internal open class CancellableContinuationImpl<in T>(
                      * Continuation was already completed, and might already have cancel handler.
                      */
                     if (state.cancelHandler != null) multipleHandlersError(handler, state)
-                    // BeforeResumeCancelHandler does not need to be called on a completed continuation
-                    if (cancelHandler is BeforeResumeCancelHandler) return
+                    // BeforeResumeCancelHandler and Segment.invokeOnCancellation(..)
+                    // do NOT need to be called on completed continuation.
+                    if (handler is BeforeResumeCancelHandler || handler is Segment<*>) return
+                    handler as CancelHandler
                     if (state.cancelled) {
                         // Was already cancelled while being dispatched -- invoke the handler directly
                         callCancelHandler(handler, state.cancelCause)
                         return
                     }
-                    val update = state.copy(cancelHandler = cancelHandler)
+                    val update = state.copy(cancelHandler = handler)
                     if (_state.compareAndSet(state, update)) return // quit on cas success
                 }
                 else -> {
@@ -374,15 +423,16 @@ internal open class CancellableContinuationImpl<in T>(
                      * Change its state to CompletedContinuation, unless we have BeforeResumeCancelHandler which
                      * does not need to be called in this case.
                      */
-                    if (cancelHandler is BeforeResumeCancelHandler) return
-                    val update = CompletedContinuation(state, cancelHandler = cancelHandler)
+                    if (handler is BeforeResumeCancelHandler || handler is Segment<*>) return
+                    handler as CancelHandler
+                    val update = CompletedContinuation(state, cancelHandler = handler)
                     if (_state.compareAndSet(state, update)) return // quit on cas success
                 }
             }
         }
     }
 
-    private fun multipleHandlersError(handler: CompletionHandler, state: Any?) {
+    private fun multipleHandlersError(handler: Any, state: Any?) {
         error("It's prohibited to register multiple handlers, tried to register $handler, already has $state")
     }
 
