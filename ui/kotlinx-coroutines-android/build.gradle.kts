@@ -2,8 +2,6 @@
  * Copyright 2016-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
-import kotlinx.kover.api.*
-
 configurations {
     create("r8")
 }
@@ -114,7 +112,4 @@ open class RunR8 : JavaExec() {
 }
 
 tasks.withType<Test> {
-    extensions.configure<KoverTaskExtension> {
-        excludes.addAll(listOf("com.android.*", "android.*")) // Exclude robolectric-generated classes
-    }
 }

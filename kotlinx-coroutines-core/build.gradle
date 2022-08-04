@@ -252,9 +252,6 @@ task moreTest(dependsOn: [jvmStressTest, jvmLincheckTest])
 check.dependsOn moreTest
 
 tasks.jvmLincheckTest {
-    kover {
-        enabled = false // Always disabled, lincheck doesn't really support coverage
-    }
     jvmArgs '-XX:+HeapDumpOnOutOfMemoryError'
 }
 
@@ -264,14 +261,6 @@ def commonKoverExcludes =
          "kotlinx.coroutines.scheduling.LimitingDispatcher", // Deprecated
          "kotlinx.coroutines.scheduling.ExperimentalCoroutineDispatcher" // Deprecated
         ]
-
-kover {
-    filters {
-        classes {
-            excludes.addAll(commonKoverExcludes)
-        }
-    }
-}
 
 task testsJar(type: Jar, dependsOn: jvmTestClasses) {
     classifier = 'tests'

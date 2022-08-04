@@ -69,10 +69,3 @@ def commonKoverExcludes =
         // Never used, safety mechanism
         ["kotlinx.coroutines.debug.internal.NoOpProbesKt"]
 
-tasks.koverHtmlReport {
-    excludes = commonKoverExcludes
-}
-
-tasks.koverVerify {
-    excludes = commonKoverExcludes
-}
