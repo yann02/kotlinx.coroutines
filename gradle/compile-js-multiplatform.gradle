@@ -24,13 +24,9 @@ kotlin {
 // When source sets are configured
 apply from: rootProject.file('gradle/test-mocha-js.gradle')
 
-def compileJsLegacy = tasks.hasProperty("compileKotlinJsLegacy")
-        ? compileKotlinJsLegacy
-        : compileKotlinJs
+def compileJsLegacy = compileKotlinJsIr
 
-def compileTestJsLegacy = tasks.hasProperty("compileTestKotlinJsLegacy")
-        ? compileTestKotlinJsLegacy
-        : compileTestKotlinJs
+def compileTestJsLegacy = compileTestKotlinJsIr
 
 compileJsLegacy.configure {
     kotlinOptions.metaInfo = true
