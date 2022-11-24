@@ -9,9 +9,11 @@ kotlin {
             distribution {
                 directory = directory.parentFile.resolve("dist")
             }
-            commonWebpackConfig {
-                cssSupport.enabled = true
-            }
+             commonWebpackConfig {
+                 cssSupport {
+                     enabled.set(true)
+                 }
+             }
             testTask {
                 useKarma {
                     useChromeHeadless()
