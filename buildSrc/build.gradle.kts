@@ -22,6 +22,7 @@ repositories {
     if (buildSnapshotTrain) {
         mavenLocal()
     }
+    mavenLocal()
 }
 
 kotlinDslPluginOptions {
