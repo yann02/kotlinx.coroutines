@@ -45,6 +45,17 @@ tasks.withType(DokkaTaskPartial::class).configureEach {
     }
 }
 
+// Disable for wasm for now
+tasks.withType(DokkaTaskPartial::class).configureEach {
+    if (project.isMultiplatform) {
+        dokkaSourceSets {
+            val wasmMain by getting {
+                suppress.set(true)
+            }
+        }
+    }
+}
+
 if (project.name == "kotlinx-coroutines-core") {
     // Custom configuration for MPP modules
     tasks.withType(DokkaTaskPartial::class).configureEach {
