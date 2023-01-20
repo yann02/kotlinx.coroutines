@@ -47,6 +47,7 @@ buildscript {
         maven { url "https://plugins.gradle.org/m2/" }
         CommunityProjectsBuild.addDevRepositoryIfEnabled(delegate, project)
         mavenLocal()
+        maven { url "https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev" }
     }
 
     dependencies {
@@ -131,6 +132,8 @@ allprojects {
         google()
         mavenCentral()
         CommunityProjectsBuild.addDevRepositoryIfEnabled(delegate, project)
+        mavenLocal()
+        maven { url "https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev" }
     }
 }
 

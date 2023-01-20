@@ -14,5 +14,7 @@ pluginManagement {
         if (build_snapshot_train?.toBoolean() == true) {
             mavenLocal()
         }
+        mavenLocal()
+        maven("https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev")
     }
 }
