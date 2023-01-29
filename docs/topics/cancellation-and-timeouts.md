@@ -381,7 +381,7 @@ resource inside the block that needs closing or release outside of the block.
 
 For example, here we imitate a closeable resource with the `Resource` class that simply keeps track of how many times 
 it was created by incrementing the `acquired` counter and decrementing the counter in its `close` function.
-Now let us let us create a lot of coroutines, each of which creates a `Resource` at the end of the `withTimeout` block
+Now let us create a lot of coroutines, each of which creates a `Resource` at the end of the `withTimeout` block
 and releases the resource outside the block. We add a small delay so that it is more likely that the timeout occurs
 right when the `withTimeout` block is already finished, which will cause a resource leak.
 
